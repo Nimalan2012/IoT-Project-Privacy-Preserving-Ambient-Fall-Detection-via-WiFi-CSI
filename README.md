@@ -88,6 +88,6 @@ Because CSI amplitude variance is highly dependent on the physical environment, 
 ---
 
 ## 👨‍💻 Authors
-**Nimalan S/O Anbhuarasan** Stanford University
-**Siddhartha Parupudi** Stanford University
-**Jason Jiang** Stanford University
+* **Nimalan S/O Anbhuarasan** Stanford University
+* **Siddhartha Parupudi** Stanford University
+* **Jason Jiang** Stanford University
