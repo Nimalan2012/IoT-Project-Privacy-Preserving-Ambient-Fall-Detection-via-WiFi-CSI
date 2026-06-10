@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Fall Detection Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tablericons/2.44.0/webfont/tabler-icons.min.css"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#0f1117; --bg-card:#181b24; --bg-card2:#1e2130;
+      --border:rgba(255,255,255,0.07); --border-md:rgba(255,255,255,0.12);
+      --text:#e8eaf0; --muted:#8b90a0; --accent:#4f8ef7;
+      --danger:#f75c5c; --danger-bg:rgba(247,92,92,0.12); --danger-bd:rgba(247,92,92,0.3);
+      --success:#3ecf8e; --warning:#f7a94f;
+      --mono:'Courier New',monospace; --radius:10px; --radius-lg:14px;
+    }
+    body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; font-size:15px; line-height:1.6; min-height:100vh; }
+    .page { max-width:960px; margin:0 auto; padding:2rem 1.5rem; }
+    header { display:flex; align-items:center; justify-content:space-between; margin-bottom:2rem; padding-bottom:1.25rem; border-bottom:0.5px solid var(--border); }
+    header h1 { font-size:18px; font-weight:600; letter-spacing:-0.3px; display:flex; align-items:center; gap:10px; }
+    header h1 i { color:var(--accent); font-size:22px; }
+    .broker-tag { font-size:11px; font-family:var(--mono); color:var(--muted); background:var(--bg-card); border:0.5px solid var(--border-md); border-radius:6px; padding:4px 10px; }
+    #alert-banner { display:none; background:var(--danger-bg); border:1px solid var(--danger-bd); border-radius:var(--radius-lg); padding:1rem 1.25rem; margin-bottom:1.5rem; align-items:center; gap:12px; animation:slideDown 0.25s ease; }
+    #alert-banner.visible { display:flex; }
+    #alert-banner i { font-size:26px; color:var(--danger); flex-shrink:0; }
+    #alert-banner .title { font-weight:600; font-size:16px; color:var(--danger); }
+    #alert-banner .sub { font-size:12px; color:var(--danger); opacity:0.75; margin-top:1px; }
+    #alert-banner .close-btn { margin-left:auto; background:none; border:none; color:var(--danger); cursor:pointer; font-size:20px; line-height:1; padding:4px; opacity:0.7; }
+    #alert-banner .close-btn:hover { opacity:1; }
+    @keyframes slideDown { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
+    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:1.5rem; }
+    .stat-card { background:var(--bg-card); border:0.5px solid var(--border); border-radius:var(--radius); padding:1rem; }
+    .stat-card .label { font-size:12px; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; }
+    .stat-card .value { font-size:22px; font-weight:600; line-height:1.2; }
+    .stat-card .value.mono { font-family:var(--mono); font-size:17px; }
+    .status-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; background:var(--muted); }
+    .status-dot.connected  { background:var(--success); box-shadow:0 0 6px var(--success); }
+    .status-dot.error      { background:var(--danger); }
+    .status-dot.connecting { background:var(--warning); }
+    .charts-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-bottom:1.5rem; }
+    .chart-card { background:var(--bg-card); border:0.5px solid var(--border); border-radius:var(--radius-lg); overflow:hidden; }
+    .chart-header { display:flex; align-items:center; justify-content:space-between; padding:0.9rem 1.25rem 0.6rem; border-bottom:0.5px solid var(--border); }
+    .chart-header h2 { font-size:13px; font-weight:600; color:var(--text); display:flex; align-items:center; gap:7px; }
+    .chart-header h2 i { color:var(--muted); font-size:16px; }
+    .chart-legend { display:flex; gap:14px; font-size:11px; color:var(--muted); }
+    .chart-legend span { display:flex; align-items:center; gap:5px; }
+    .chart-legend .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+    .chart-body { padding:0.75rem 1.25rem 1rem; position:relative; height:200px; }
+    .thresh-note { display:flex; gap:16px; padding:0 1.25rem 0.75rem; font-size:11px; color:var(--muted); }
+    .thresh-note span { display:flex; align-items:center; gap:6px; }
+    .thresh-note .dash { width:18px; height:0; border-top:2px dashed; }
+    .log-panel { background:var(--bg-card); border:0.5px solid var(--border); border-radius:var(--radius-lg); overflow:hidden; }
+    .log-header { display:flex; align-items:center; justify-content:space-between; padding:1rem 1.25rem; border-bottom:0.5px solid var(--border); }
+    .log-header h2 { font-size:14px; font-weight:600; color:var(--text); }
+    .clear-btn { font-size:12px; color:var(--muted); background:none; border:0.5px solid var(--border-md); border-radius:6px; padding:4px 10px; cursor:pointer; }
+    .clear-btn:hover { color:var(--text); }
+    #log-empty { text-align:center; padding:3rem 0; color:var(--muted); font-size:13px; }
+    #log-empty i { font-size:36px; display:block; margin-bottom:10px; opacity:0.4; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    thead th { text-align:left; padding:8px 16px; font-weight:500; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted); background:var(--bg-card2); }
+    thead th:last-child { text-align:right; }
+    tbody tr { border-top:0.5px solid var(--border); transition:background 0.1s; }
+    tbody tr:hover { background:var(--bg-card2); }
+    tbody tr.new-row { animation:fadeRow 0.3s ease; }
+    @keyframes fadeRow { from{background:rgba(247,92,92,0.08)} to{background:transparent} }
+    td { padding:10px 16px; color:var(--text); }
+    td.mono { font-family:var(--mono); }
+    td.muted { color:var(--muted); font-size:12px; }
+    td.badge-cell { text-align:right; }
+    .badge { display:inline-block; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; padding:3px 8px; border-radius:5px; background:var(--danger-bg); color:var(--danger); border:0.5px solid var(--danger-bd); }
+    footer { margin-top:2rem; padding-top:1rem; border-top:0.5px solid var(--border); font-size:11px; color:var(--muted); font-family:var(--mono); display:flex; justify-content:space-between; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <h1><i class="ti ti-wifi" aria-hidden="true"></i> Fall Detection Dashboard</h1>
+    <span class="broker-tag">broker.emqx.io &middot; ee284a/csi/data</span>
+  </header>
+
+  <div id="alert-banner" role="alert" aria-live="assertive">
+    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+    <div>
+      <div class="title">Fall detected</div>
+      <div class="sub" id="banner-time"></div>
+    </div>
+    <button class="close-btn" onclick="dismissBanner()" aria-label="Dismiss">
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="label">Connection</div>
+      <div class="value" style="font-size:14px;display:flex;align-items:center;">
+        <span class="status-dot connecting" id="conn-dot"></span>
+        <span id="conn-text">Connecting&hellip;</span>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Total falls</div>
+      <div class="value" id="fall-count">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Action variance</div>
+      <div class="value mono" id="last-action-var">&mdash;</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Aftermath variance</div>
+      <div class="value mono" id="last-after-var">&mdash;</div>
+    </div>
+  </div>
+
+  <div class="charts-grid">
+    <div class="chart-card">
+      <div class="chart-header">
+        <h2><i class="ti ti-wave-sine" aria-hidden="true"></i> CSI movement waveform (PC1 mean)</h2>
+        <div class="chart-legend">
+          <span><span class="dot" style="background:#a78bfa;"></span>Mean amplitude &mdash; valid subcarriers only</span>
+        </div>
+      </div>
+      <div class="chart-body">
+        <canvas id="waveChart" role="img" aria-label="Live CSI movement waveform">Waiting for data</canvas>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-header">
+        <h2><i class="ti ti-activity" aria-hidden="true"></i> Variance tracking (3-component PCA sum)</h2>
+        <div class="chart-legend">
+          <span><span class="dot" style="background:#f7a94f;"></span>Action</span>
+          <span><span class="dot" style="background:#4f8ef7;"></span>Aftermath</span>
+        </div>
+      </div>
+      <div class="chart-body">
+        <canvas id="varChart" role="img" aria-label="Variance tracking for fall detection">Waiting for data</canvas>
+      </div>
+      <div class="thresh-note">
+        <span><span class="dash" style="border-color:#f7a94f;"></span>Spike threshold (500)</span>
+        <span><span class="dash" style="border-color:#4f8ef7;"></span>Stillness threshold (300)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="log-panel">
+    <div class="log-header">
+      <h2>Alert history</h2>
+      <button class="clear-btn" onclick="clearLog()"><i class="ti ti-trash" aria-hidden="true"></i> Clear</button>
+    </div>
+    <div id="log-empty"><i class="ti ti-list-check" aria-hidden="true"></i>No falls detected yet</div>
+    <table id="log-table" style="display:none;">
+      <thead><tr>
+        <th style="width:48px;">#</th>
+        <th>Timestamp</th>
+        <th>Action var</th>
+        <th style="text-align:right;">Event</th>
+      </tr></thead>
+      <tbody id="log-body"></tbody>
+    </table>
+  </div>
+
+  <footer>
+    <span>topic: ee284a/csi/data &nbsp;|&nbsp; window: 150 pkts &nbsp;|&nbsp; slide: 10 &nbsp;|&nbsp; PCA: 3 components</span>
+    <span id="footer-msg-count">0 messages received</span>
+  </footer>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+//  Parameters — mirrors the updated serial falldet.py exactly
+// ════════════════════════════════════════════════════════
+var WINDOW_SIZE         = 150;
+var SLIDE_STEP          = 10;
+var ACTION_SPLIT        = 75;   // first 75 rows = action phase (matches py script)
+var SPIKE_THRESHOLD     = 500;
+var STILLNESS_THRESHOLD = 300;
+var MAX_WAVE_POINTS     = 300;
+var MAX_VAR_POINTS      = 100;
+var N_COMPONENTS        = 3;    // PCA(n_components=3)
+
+// ESP32 HT20 valid subcarrier indices (drops noisy null + DC subcarriers)
+// Python: list(range(6,32)) + list(range(33,59))  →  52 subcarriers
+var VALID_IDX = (function() {
+  var idx = [];
+  for (var i = 6;  i < 32; i++) idx.push(i);
+  for (var i = 33; i < 59; i++) idx.push(i);
+  return idx;  // length 52
+})();
+
+// ════════════════════════════════════════════════════════
+//  State
+// ════════════════════════════════════════════════════════
+var csiBuffer     = [];   // each entry: Float array of 52 valid-subcarrier amplitudes
+var fallCount     = 0;
+var msgCount      = 0;
+var lastAlertTime = null;
+var bannerTimer   = null;
+var waveTime      = 0;
+var varTime       = 0;
+
+var connDot      = document.getElementById('conn-dot');
+var connText     = document.getElementById('conn-text');
+var fallCountEl  = document.getElementById('fall-count');
+var lastActionEl = document.getElementById('last-action-var');
+var lastAfterEl  = document.getElementById('last-after-var');
+var alertBanner  = document.getElementById('alert-banner');
+var bannerTimeEl = document.getElementById('banner-time');
+var logEmpty     = document.getElementById('log-empty');
+var logTable     = document.getElementById('log-table');
+var logBody      = document.getElementById('log-body');
+var footerMsg    = document.getElementById('footer-msg-count');
+
+function fmt(d) {
+  return d.toLocaleDateString([],{month:'short',day:'numeric'}) + ' ' +
+         d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+function dismissBanner() {
+  alertBanner.classList.remove('visible');
+  if (bannerTimer) clearTimeout(bannerTimer);
+}
+function showBanner(ts) {
+  bannerTimeEl.textContent = fmt(ts);
+  alertBanner.classList.add('visible');
+  if (bannerTimer) clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(dismissBanner, 8000);
+}
+function addLogEntry(ts, av) {
+  fallCount++;
+  fallCountEl.textContent = fallCount;
+  lastAlertTime = Date.now();
+  var tr = document.createElement('tr');
+  tr.className = 'new-row';
+  tr.innerHTML = '<td class="muted">' + fallCount + '</td>' +
+    '<td>' + fmt(ts) + '</td>' +
+    '<td class="mono">' + av.toFixed(2) + '</td>' +
+    '<td class="badge-cell"><span class="badge">fall</span></td>';
+  logBody.insertBefore(tr, logBody.firstChild);
+  logEmpty.style.display = 'none';
+  logTable.style.display = 'table';
+}
+function clearLog() {
+  fallCount = 0; lastAlertTime = null;
+  fallCountEl.textContent = '0';
+  logBody.innerHTML = '';
+  logEmpty.style.display = 'block';
+  logTable.style.display = 'none';
+  dismissBanner();
+}
+
+// ════════════════════════════════════════════════════════
+//  Chart.js
+// ════════════════════════════════════════════════════════
+var gc = 'rgba(255,255,255,0.05)', tc = '#8b90a0', bc = 'rgba(255,255,255,0.07)';
+var sb = { ticks:{color:tc,font:{size:10},maxTicksLimit:8}, grid:{color:gc}, border:{color:bc} };
+
+var waveLabels = [], waveData = [];
+var waveChart = new Chart(document.getElementById('waveChart'), {
+  type:'line',
+  data:{ labels:waveLabels, datasets:[{
+    data:waveData, borderColor:'#a78bfa', borderWidth:1.5,
+    fill:true, backgroundColor:'rgba(167,139,250,0.08)', tension:0.3, pointRadius:0
+  }]},
+  options:{
+    responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{ legend:{ display:false } },
+    scales:{
+      x: Object.assign({},sb),
+      y: Object.assign({},sb,{ title:{ display:true, text:'Mean amplitude', color:tc, font:{size:10} } })
+    }
+  }
+});
+
+var varLabels = [], actData = [], aftData = [];
+var varChart = new Chart(document.getElementById('varChart'), {
+  type:'line',
+  data:{ labels:varLabels, datasets:[
+    { label:'Action',    data:actData, borderColor:'#f7a94f', borderWidth:1.5, fill:false, tension:0.3, pointRadius:0 },
+    { label:'Aftermath', data:aftData, borderColor:'#4f8ef7', borderWidth:1.5, fill:false, tension:0.3, pointRadius:0, borderDash:[5,3] }
+  ]},
+  options:{
+    responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{ legend:{ display:false } },
+    scales:{
+      x: Object.assign({},sb),
+      y: Object.assign({},sb,{ min:0, title:{ display:true, text:'Variance (PCA sum)', color:tc, font:{size:10} } })
+    }
+  }
+});
+
+function pushWave(val) {
+  waveTime++;
+  waveLabels.push(waveTime);
+  waveData.push(parseFloat(val.toFixed(3)));
+  if (waveLabels.length > MAX_WAVE_POINTS) { waveLabels.shift(); waveData.shift(); }
+  waveChart.update('none');
+}
+function pushVar(av, afv) {
+  varTime++;
+  varLabels.push(varTime);
+  actData.push(parseFloat(av.toFixed(2)));
+  aftData.push(parseFloat(afv.toFixed(2)));
+  if (varLabels.length > MAX_VAR_POINTS) { varLabels.shift(); actData.shift(); aftData.shift(); }
+  var maxVal = Math.max.apply(null, actData.concat([SPIKE_THRESHOLD * 1.1]));
+  varChart.options.scales.y.max = Math.ceil(maxVal / 100) * 100;
+  varChart.update('none');
+}
+
+// ════════════════════════════════════════════════════════
+//  Signal processing — mirrors the updated falldet.py
+// ════════════════════════════════════════════════════════
+
+// parse_amplitudes: receives full 64-element amplitude array from ESP32,
+// returns only the 52 valid subcarriers (matches Python VALID_SUBCARRIERS filter)
+function parseAmplitudes(amps64) {
+  var out = [];
+  for (var i = 0; i < VALID_IDX.length; i++) out.push(amps64[VALID_IDX[i]]);
+  return out;
+}
+
+// Column-wise mean subtraction — removes DC offset per subcarrier
+// This is what bandpass does at the DC level (the dominant artefact for short JS windows)
+function removeDC(matrix) {
+  var rows = matrix.length, cols = matrix[0].length, r, c;
+  var means = new Array(cols).fill(0);
+  for (r = 0; r < rows; r++) for (c = 0; c < cols; c++) means[c] += matrix[r][c];
+  for (c = 0; c < cols; c++) means[c] /= rows;
+  return matrix.map(function(row) { return row.map(function(v, c) { return v - means[c]; }); });
+}
+
+// Column mean of a matrix
+function colMeans(matrix) {
+  var rows = matrix.length, cols = matrix[0].length, r, c;
+  var m = new Array(cols).fill(0);
+  for (r = 0; r < rows; r++) for (c = 0; c < cols; c++) m[c] += matrix[r][c];
+  for (c = 0; c < cols; c++) m[c] /= rows;
+  return m;
+}
+
+// Matrix multiply: A (m x k) @ B (k x n) → (m x n)
+function matMul(A, B) {
+  var m = A.length, k = B.length, n = B[0].length, i, j, l;
+  var C = [];
+  for (i = 0; i < m; i++) {
+    C.push(new Array(n).fill(0));
+    for (j = 0; j < n; j++)
+      for (l = 0; l < k; l++) C[i][j] += A[i][l] * B[l][j];
+  }
+  return C;
+}
+
+// Transpose a matrix
+function transpose(M) {
+  var rows = M.length, cols = M[0].length, r, c;
+  var T = [];
+  for (c = 0; c < cols; c++) {
+    T.push([]);
+    for (r = 0; r < rows; r++) T[c].push(M[r][c]);
+  }
+  return T;
+}
+
+// Dot product of two vectors
+function dot(a, b) {
+  var s = 0;
+  for (var i = 0; i < a.length; i++) s += a[i] * b[i];
+  return s;
+}
+
+// L2 norm of a vector
+function norm2(v) { return Math.sqrt(dot(v, v)); }
+
+// Subtract scalar * vector from another vector
+function vecSub(a, scalar, b) { return a.map(function(v, i) { return v - scalar * b[i]; }); }
+
+// PCA via power iteration — returns scores matrix of shape (rows x nComponents)
+// Mirrors sklearn PCA(n_components=N_COMPONENTS).fit_transform(filtered)
+function pcaTransform(matrix, nComponents) {
+  var rows = matrix.length, cols = matrix[0].length, i, c, iter, k;
+
+  // 1. Mean-centre columns (sklearn PCA always centres)
+  var mu = colMeans(matrix);
+  var X  = matrix.map(function(row) { return row.map(function(v, c) { return v - mu[c]; }); });
+  var Xt = transpose(X);  // cols x rows  (for covariance later)
+
+  // 2. Deflation: extract one component at a time via power iteration
+  var components = [];  // each entry: eigenvector of length cols
+  var Xwork = X.map(function(r) { return r.slice(); });  // copy
+
+  for (k = 0; k < nComponents; k++) {
+    // Random init
+    var vec = [];
+    for (c = 0; c < cols; c++) vec.push(Math.random() - 0.5);
+    var n = norm2(vec) || 1;
+    for (c = 0; c < cols; c++) vec[c] /= n;
+
+    // Power iteration: vec ← (X^T X) vec  (covariance direction)
+    for (iter = 0; iter < 30; iter++) {
+      // scores = X @ vec  (rows x 1)
+      var scores = Xwork.map(function(row) { return dot(row, vec); });
+      // newVec  = X^T @ scores  (cols x 1)
+      var newVec = new Array(cols).fill(0);
+      for (i = 0; i < rows; i++)
+        for (c = 0; c < cols; c++) newVec[c] += Xwork[i][c] * scores[i];
+      var nm = norm2(newVec) || 1;
+      vec = newVec.map(function(v) { return v / nm; });
+    }
+
+    components.push(vec);
+
+    // Deflate: remove this component's contribution from Xwork
+    var proj = Xwork.map(function(row) { return dot(row, vec); });
+    Xwork = Xwork.map(function(row, r) { return vecSub(row, proj[r], vec); });
+  }
+
+  // 3. Project X onto all components → scores (rows x nComponents)
+  var compT = transpose(components);  // cols x nComponents
+  return matMul(X, compT);            // rows x nComponents
+}
+
+// Variance of a 1-D array
+function variance1D(arr) {
+  var m = 0, i;
+  for (i = 0; i < arr.length; i++) m += arr[i];
+  m /= arr.length;
+  var v = 0;
+  for (i = 0; i < arr.length; i++) v += (arr[i]-m)*(arr[i]-m);
+  return v / arr.length;
+}
+
+// Sum of per-column variances across a 2D matrix (rows x nComponents)
+// Matches: np.sum(np.var(phase, axis=0))
+function sumVariance(matrix) {
+  if (!matrix.length) return 0;
+  var nCols = matrix[0].length, total = 0, c;
+  for (c = 0; c < nCols; c++) {
+    var col = matrix.map(function(row) { return row[c]; });
+    total += variance1D(col);
+  }
+  return total;
+}
+
+// Row-mean of a 1-D array of values (for waveform)
+function mean(arr) {
+  var s = 0;
+  for (var i = 0; i < arr.length; i++) s += arr[i];
+  return s / arr.length;
+}
+
+// ── Main processing window — called every SLIDE_STEP messages ──
+function processWindow() {
+  if (csiBuffer.length < WINDOW_SIZE) return;
+
+  var win = csiBuffer.slice(0, WINDOW_SIZE);  // 150 x 52
+
+  // Waveform: push mean amplitude of last SLIDE_STEP rows (visual_wave, no savgol)
+  for (var i = WINDOW_SIZE - SLIDE_STEP; i < WINDOW_SIZE; i++) {
+    pushWave(mean(win[i]));
+  }
+
+  // DC removal (approximates bandpass at DC level for the browser)
+  var filtered = removeDC(win);  // 150 x 52
+
+  // 3-component PCA — mirrors PCA(n_components=3).fit_transform(filtered)
+  var scores = pcaTransform(filtered, N_COMPONENTS);  // 150 x 3
+
+  // Split: action = rows 0..74, aftermath = rows 75..149
+  var actionPhase   = scores.slice(0, ACTION_SPLIT);   // 75 x 3
+  var afterPhase    = scores.slice(ACTION_SPLIT);       // 75 x 3
+
+  // np.sum(np.var(phase, axis=0))
+  var actionVar  = sumVariance(actionPhase);
+  var afterVar   = sumVariance(afterPhase);
+
+  lastActionEl.textContent = actionVar.toFixed(2);
+  lastAfterEl.textContent  = afterVar.toFixed(2);
+  pushVar(actionVar, afterVar);
+
+  if (actionVar > SPIKE_THRESHOLD && afterVar < STILLNESS_THRESHOLD) {
+    var ts = new Date();
+    showBanner(ts);
+    addLogEntry(ts, actionVar);
+    console.log('FALL DETECTED — spike: ' + actionVar.toFixed(2) + '  still: ' + afterVar.toFixed(2));
+  }
+
+  csiBuffer = csiBuffer.slice(SLIDE_STEP);
+}
+
+// ════════════════════════════════════════════════════════
+//  MQTT — subscribes to ee284a/csi/data
+//  Expects the ESP32 to publish a JSON array of 64 floats
+// ════════════════════════════════════════════════════════
+var client = mqtt.connect('ws://broker.emqx.io:8083/mqtt', {
+  clientId: 'ee284a_dash_' + Math.random().toString(16).slice(2, 8),
+  keepalive: 30,
+  reconnectPeriod: 3000
+});
+
+client.on('connect', function() {
+  connDot.className = 'status-dot connected';
+  connText.textContent = 'Connected';
+  client.subscribe('ee284a/csi/data');
+});
+client.on('reconnect', function() {
+  connDot.className = 'status-dot connecting';
+  connText.textContent = 'Reconnecting\u2026';
+});
+client.on('error', function() {
+  connDot.className = 'status-dot error';
+  connText.textContent = 'Error';
+});
+client.on('offline', function() {
+  connDot.className = 'status-dot';
+  connText.textContent = 'Offline';
+});
+
+client.on('message', function(topic, payload) {
+  try {
+    var raw = JSON.parse(payload.toString());
+
+    // Accept a flat 64-element amplitude array from the ESP32
+    if (!Array.isArray(raw) || raw.length !== 64) return;
+
+    msgCount++;
+    footerMsg.textContent = msgCount + ' message' + (msgCount === 1 ? '' : 's') + ' received';
+
+    // Filter to valid subcarriers (52 values) — mirrors parse_amplitudes()
+    var amps = parseAmplitudes(raw.map(Number));
+    csiBuffer.push(amps);
+
+    // Only run the heavy PCA once per SLIDE_STEP new packets
+    if (csiBuffer.length >= WINDOW_SIZE && (csiBuffer.length - WINDOW_SIZE) % SLIDE_STEP === 0) {
+      processWindow();
+    }
+
+  } catch(e) {
+    console.warn('Bad payload:', payload.toString());
+  }
+});
+</script>
+</body>
+</html>
