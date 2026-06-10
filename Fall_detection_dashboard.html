@@ -170,9 +170,7 @@
 </div>
 
 <script>
-// ════════════════════════════════════════════════════════
-//  Parameters — mirrors the updated serial falldet.py exactly
-// ════════════════════════════════════════════════════════
+
 var WINDOW_SIZE         = 150;
 var SLIDE_STEP          = 10;
 var ACTION_SPLIT        = 75;   // first 75 rows = action phase (matches py script)
@@ -191,9 +189,8 @@ var VALID_IDX = (function() {
   return idx;  // length 52
 })();
 
-// ════════════════════════════════════════════════════════
 //  State
-// ════════════════════════════════════════════════════════
+
 var csiBuffer     = [];   // each entry: Float array of 52 valid-subcarrier amplitudes
 var fallCount     = 0;
 var msgCount      = 0;
@@ -251,9 +248,9 @@ function clearLog() {
   dismissBanner();
 }
 
-// ════════════════════════════════════════════════════════
+
 //  Chart.js
-// ════════════════════════════════════════════════════════
+
 var gc = 'rgba(255,255,255,0.05)', tc = '#8b90a0', bc = 'rgba(255,255,255,0.07)';
 var sb = { ticks:{color:tc,font:{size:10},maxTicksLimit:8}, grid:{color:gc}, border:{color:bc} };
 
@@ -309,9 +306,7 @@ function pushVar(av, afv) {
   varChart.update('none');
 }
 
-// ════════════════════════════════════════════════════════
-//  Signal processing — mirrors the updated falldet.py
-// ════════════════════════════════════════════════════════
+//  Signal processing
 
 // parse_amplitudes: receives full 64-element amplitude array from ESP32,
 // returns only the 52 valid subcarriers (matches Python VALID_SUBCARRIERS filter)
@@ -381,12 +376,12 @@ function vecSub(a, scalar, b) { return a.map(function(v, i) { return v - scalar 
 function pcaTransform(matrix, nComponents) {
   var rows = matrix.length, cols = matrix[0].length, i, c, iter, k;
 
-  // 1. Mean-centre columns (sklearn PCA always centres)
+  // Mean-centre columns (sklearn PCA always centres)
   var mu = colMeans(matrix);
   var X  = matrix.map(function(row) { return row.map(function(v, c) { return v - mu[c]; }); });
   var Xt = transpose(X);  // cols x rows  (for covariance later)
 
-  // 2. Deflation: extract one component at a time via power iteration
+  // Deflation: extract one component at a time via power iteration
   var components = [];  // each entry: eigenvector of length cols
   var Xwork = X.map(function(r) { return r.slice(); });  // copy
 
@@ -450,7 +445,7 @@ function mean(arr) {
   return s / arr.length;
 }
 
-// ── Main processing window — called every SLIDE_STEP messages ──
+// Processing window
 function processWindow() {
   if (csiBuffer.length < WINDOW_SIZE) return;
 
@@ -489,10 +484,9 @@ function processWindow() {
   csiBuffer = csiBuffer.slice(SLIDE_STEP);
 }
 
-// ════════════════════════════════════════════════════════
+
 //  MQTT — subscribes to ee284a/csi/data
 //  Expects the ESP32 to publish a JSON array of 64 floats
-// ════════════════════════════════════════════════════════
 var client = mqtt.connect('ws://broker.emqx.io:8083/mqtt', {
   clientId: 'ee284a_dash_' + Math.random().toString(16).slice(2, 8),
   keepalive: 30,
