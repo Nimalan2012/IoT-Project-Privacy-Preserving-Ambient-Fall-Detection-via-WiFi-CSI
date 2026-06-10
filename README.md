@@ -77,6 +77,14 @@ A browser-based UI that processes the MQTT stream and detects falls using Princi
 2. Ensure the dashboard connects to the MQTT broker. 
 3. Move between the Tx and Rx nodes to watch the real-time CSI movement waveform. Simulate a fall to trigger the detection alert!
 
+### Step 4: Calibration & Threshold Tuning
+Because CSI amplitude variance is highly dependent on the physical environment, you will likely need to experiment to reliably detect falls in your specific location.
+1. Observe the variance baseline in the dashboard while the room is empty, and again during normal walking.
+2. Simulate a fall between the Tx and Rx nodes and note the peak Action variance and the subsequent Aftermath variance.
+3. Open `index.html` in a text editor and update the constants at the top of the script based on your environment's physical distance and layout:
+   ```javascript
+   var SPIKE_THRESHOLD     = 500; // Increase if false positives occur from normal movement
+   var STILLNESS_THRESHOLD = 300; // Adjust based on background noise in the aftermath phase
 ---
 
 ## 👨‍💻 Authors
